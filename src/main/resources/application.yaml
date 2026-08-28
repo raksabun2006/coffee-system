@@ -1,0 +1,66 @@
+server:
+  port: ${APP_PORT:8098}
+  error:
+    include-stacktrace: never
+    include-message: never
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        secure: true
+
+keycloak:
+  server-url: ${KEYCLOAK_SERVER_URL}
+  realm: ${KEYCLOAK_REALM}
+  client-id: ${KEYCLOAK_CLIENT_ID}
+  client-secret: ${KEYCLOAK_CLIENT_SECRET}
+  admin-username: ${KEYCLOAK_ADMIN}
+  admin-password: ${KEYCLOAK_ADMIN_PASSWORD}
+
+spring:
+  application:
+    name: coffeee
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 20000
+      idle-timeout: 300000
+      max-lifetime: 1800000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate # Switched from update to validate for database integrity
+    open-in-view: false
+    show-sql: false    # Disabled to prevent parameter leakage in production logs
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI}
+
+bakong:
+  api:
+    url: ${BAKONG_API_URL}
+    merchant-id: ${BAKONG_MERCHANT_ID}
+    token: ${BAKONG_API_TOKEN}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info # Excluded metrics from public exposure
+  endpoint:
+    health:
+      show-details: when_authorized
