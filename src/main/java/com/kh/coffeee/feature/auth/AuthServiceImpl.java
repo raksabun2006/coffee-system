@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.keycloak.OAuth2Constants;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.KeycloakBuilder;
+import org.keycloak.admin.client.resource.UserResource;
 import org.keycloak.representations.idm.CredentialRepresentation;
 import org.keycloak.representations.idm.RoleRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
@@ -47,7 +48,7 @@ public class AuthServiceImpl implements AuthService {
 
         return KeycloakBuilder.builder()
                 .serverUrl(keycloakProps.getServerUrl())
-                .realm("master") // Admin API authenticates against the master realm
+                .realm("master")
                 .clientId("admin-cli")
                 .grantType(OAuth2Constants.PASSWORD)
                 .username(keycloakProps.getAdminUsername())
@@ -86,27 +87,37 @@ public class AuthServiceImpl implements AuthService {
             String locationPath = response.getLocation().getPath();
             keycloakUserId = locationPath.substring(locationPath.lastIndexOf('/') + 1);
 
-            // 2. Assign default realm role (CASHIER)
+            UserResource userResource = keycloakAdmin.realm(targetRealm).users().get(keycloakUserId);
+
+            // 2. Clear any lingering required actions and ensure user is fully active
+            UserRepresentation updatedUser = userResource.toRepresentation();
+            updatedUser.setRequiredActions(Collections.emptyList());
+            updatedUser.setEmailVerified(true);
+            updatedUser.setEnabled(true);
+            userResource.update(updatedUser);
+
+            // 3. Reset to non-temporary password directly
+            CredentialRepresentation credential = new CredentialRepresentation();
+            credential.setType(CredentialRepresentation.PASSWORD);
+            credential.setValue(request.password());
+            credential.setTemporary(false);
+            userResource.resetPassword(credential);
+
+            // 4. Assign default CASHIER realm role
             try {
                 RoleRepresentation defaultRole = keycloakAdmin.realm(targetRealm)
                         .roles()
                         .get("CASHIER")
                         .toRepresentation();
 
-                keycloakAdmin.realm(targetRealm)
-                        .users()
-                        .get(keycloakUserId)
-                        .roles()
-                        .realmLevel()
-                        .add(Collections.singletonList(defaultRole));
-
+                userResource.roles().realmLevel().add(Collections.singletonList(defaultRole));
                 log.info("Default role 'CASHIER' assigned to Keycloak user ID: {}", keycloakUserId);
             } catch (Exception e) {
                 log.warn("Could not automatically assign default realm role: {}", e.getMessage());
             }
         }
 
-        // 3. Save local entity projection into PostgreSQL database
+        // 5. Persist local PostgreSQL entity
         User user = User.builder()
                 .keycloakId(keycloakUserId)
                 .username(request.username())
@@ -133,7 +144,18 @@ public class AuthServiceImpl implements AuthService {
         UserRepresentation user = new UserRepresentation();
         user.setUsername(request.username());
         user.setEmail(request.email());
-        user.setFirstName(request.displayName());
+
+        // Parse first name and last name to satisfy Keycloak profile validators
+        String name = (request.displayName() != null && !request.displayName().isBlank())
+                ? request.displayName().trim()
+                : request.username();
+
+        String[] nameParts = name.split("\\s+", 2);
+        String firstName = nameParts[0];
+        String lastName = (nameParts.length > 1 && !nameParts[1].isBlank()) ? nameParts[1] : nameParts[0];
+
+        user.setFirstName(firstName);
+        user.setLastName(lastName);
         user.setEnabled(true);
         user.setEmailVerified(true);
         user.setRequiredActions(Collections.emptyList());
